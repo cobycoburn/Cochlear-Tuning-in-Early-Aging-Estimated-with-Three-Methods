@@ -1,16 +1,18 @@
 ###########################################
-### SFOAE sweeps (phase-gradient delay) ###
+### SFOAE Sweeps (phase-gradient delay) ###
 ###########################################
 
 # For plotting SFOAE phase & associated (estimated) Qerbs
-# Used specifically for Tuning Manuscript (updated since dissertation was published in 08/2024)
+# Sub-analysis of Cochlear Tuning in Early Aging Estimated with Three Methods
+# Manuscript submitted to Trends in Hearing
 
-# Author: Courtney Glavin
-# Last Updated: October 8, 2024
+# Author: Courtney SC Glavin
+# Last Updated: June 24, 2025
+# Version: 2.0 
 
-################################################################################
-## Set up R environment and data
-################################################################################
+##############
+## Set up R ##
+##############
 
 ## Install packages, as required
 if (!require(pacman)) install.packages('pacman')             # for pkg loading
@@ -23,9 +25,20 @@ if (!require(sm)) install.packages('sm')                     # sm density - norm
 ## Open packages 
 pacman::p_load(pacman, dplyr, ggplot2, plotrix, RColorBrewer, sm)
 
-## Read in data, update path as needed
-#df <- read.csv('D:/Compiled SFOAE Phase Data/sfPhase.csv')
+# Define color palette (for plotting)
+my.pal <- c("#F79044FF","#B6308BFF","#8305A7FF", "black")
+# Define shapes (for plotting)
+my.shapes <- c(15,16,17,NA)
+
+####################################################################
+## Initial data wrangling - SFOAE phase and behavioral thresholds ##
+####################################################################
+
+## Read dataframe - specify path here 
 df <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/sfPhase.csv')
+dfaudio <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/audioData_2024-05-13.csv') # audiogram data
+te <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/participantTestEar.csv') # test ear of each participant 
+dftrk <- read.csv('D:/Analysis/Behavioral Tracking/Analyzed Data/individualtrackingThresholds_2024-05-14.csv') # behavioral tracking thresholds of each participant
 
 ## Data clean-up
 # Filter out CCGC081 (did not qualify for study)
@@ -48,19 +61,105 @@ df <- df %>%
 df <- df %>%
   filter(id != 'CCG_A_025')
 
-# Define color palette (for plotting)
-my.pal <- c("#F79044FF","#B6308BFF","#8305A7FF", "black")
-# Define shapes (for plotting)
-my.shapes <- c(15,16,17,NA)
+df <- rename(df, frequency = cf)
+
+# Remove _ from participantIDs 
+df$id <- gsub("_", "", df$id)
+
+###########################
+### Audiogram wrangling ###
+###########################
+
+# Rename mislabeled participants
+dfaudio$ID[df$ID == "CCG_A_015"] <- "CCG_A_015_discontinued"
+dfaudio$ID[df$ID == "CCG_B_29"] <- "CCG_B_029"
+
+# Merge dfs
+dfaudio <- dfaudio %>% 
+  left_join(te, by="ID")
+
+# Filter by test ear
+dfaudio <- dfaudio %>% 
+  mutate(testEarThreshold = ifelse(testEar == 'R', Right, Left)
+  )
+
+# Remove _ from participantIDs 
+dfaudio$ID <- gsub("_", "", dfaudio$ID)
+
+# Create PTA column from audiogram data (0.5, 2, and 4 kHz)
+pta <- dfaudio %>%
+  filter(Frequency %in% c(500, 1000, 2000)) %>%
+  mutate(selected_ear = ifelse(testEar == 'L', Left, Right)) %>% 
+  group_by(ID) %>%
+  summarise(pta = mean(selected_ear, na.rm = TRUE)) %>%
+  ungroup() 
+
+dfaudio <- dfaudio %>%
+  left_join(pta, by = "ID")
+
+# Reformat column name
+dfaudio <- rename(dfaudio, id = ID)
+dfaudio <- rename(dfaudio, frequency = Frequency)
+
+#####################################
+### Behavioral tracking wrangling ###
+#####################################
+
+# Reformat data
+dftrk$frequency <- dftrk$frequency*1000
+dftrk$id <- paste0("CCG_", dftrk$id)
+dftrk$id <- gsub("_", "", dftrk$id)
+
+dftrk <- dftrk %>% select(id, frequency, thresholdsFPL) %>%
+  filter(frequency <= 16000) # No tuning data above 14 kHz
+
+ptalow <- dftrk %>%
+  filter(frequency %in% c(500, 1000, 2000)) %>%
+  group_by(id) %>%
+  summarise(ptalow = mean(thresholdsFPL, na.rm = TRUE)) %>%
+  ungroup()
+
+ptahigh <- dftrk %>%
+  filter(frequency %in% c(8000, 10000, 12500, 14000, 16000)) %>%
+  group_by(id) %>%
+  summarise(ptahigh = mean(thresholdsFPL, na.rm = TRUE)) %>%
+  ungroup() 
+
+dftrk <- dftrk %>%
+  left_join(ptalow, by = "id") %>%
+  left_join(ptahigh, by = "id") 
+
+##################################
+### Merge all three dataframes ###
+##################################
+
+dfnew <- left_join(df, dfaudio, by = c("id", "frequency"))
+df <- left_join(dfnew, dftrk, by = c("id", "frequency"))
+df <- unique(df) # Clear duplicate rows 
+
+df <- df %>%
+  group_by(id) %>%
+  tidyr::fill(age, pta, ptahigh, ptalow, .direction = "downup") %>%
+  ungroup()
+
+# Fix missing age in this dataframe (this person's audiogram was missing from our data set,
+# therefore they inadvertently were filtered out when dfs were combined)
+df <- df %>%
+  mutate(
+    age = case_when(
+      grepl("CCGA002", id) ~ 20,      
+      TRUE                  ~ age    # leave other rows unchanged
+    )
+  )
 
 ################################################################################
-## Figure 6: Plot phase in cycles across center frequencies by age group
+## Figure 7: Plot phase in cycles across center frequencies by age group
 ################################################################################
 
- p7 <- ggplot(data=df, aes(x=(f/1000), y=phi, colour=group, group=id)) +
+p7 <- ggplot(data=df, aes(x=(f/1000), y=phi, colour=group, group=id)) +
     geom_line(alpha=0.3, scales="free_x") +
     geom_smooth(aes(group=group, color=group, linetype=group),method="lm", se=F, linewidth=1.2) +
-    facet_wrap(~cf, scales="free_x", nrow=1) +
+    facet_wrap(~frequency, scales="free_x", nrow=1) +
     scale_colour_manual(name="",
                         labels= c("18-23 years", "30-39 years", "40+ years"),
                         aesthetics= c("colour","fill"),
@@ -73,7 +172,7 @@ my.shapes <- c(15,16,17,NA)
     theme_bw(base_size=15) +
     theme(legend.position = "top", legend.title = element_blank(), axis.text.x=element_text(size=10))
 
-# p7
+p7
 
 # Save
 #ggsave("Fig7_SFphase.tiff", plot=p7, width=12, height=6, units="in", dpi=800, path='D:/Analysis/Tuning Manuscript/Figures')
@@ -82,21 +181,19 @@ my.shapes <- c(15,16,17,NA)
 ## Analysis: Slopes from Figure 7 ##
 ####################################
 
-# Not used in manuscript
-
+# Estimate the same slopes from lm; control for PTA
 models <- df %>%
   group_by(group) %>%
-  do(model = lm(phi ~ f, data = .))
+  do(model = lm(phi ~ f + pta, data = .))
 
 coefficients <- models %>%
   summarise(intercept = coef(model)[1], slope = coef(model)[2])
 
 print(coefficients)
 
-
-################################################################################
-## Figure 8: Plot estimated Qerb across center frequencies by age group
-################################################################################
+##########################################################################
+## Figure 8: Plot estimated Qerb across center frequencies by age group ##
+##########################################################################
 
 # Prep OAE Qerb estimations from Shera et al. 2002 (pulled in Matlab using Grabit; saving values here)
 
@@ -143,11 +240,11 @@ SheraUpper <- data.frame(
 # were set in Matlab when Q could not be estimated due to noisy data)
 
 df2 <- df %>% 
-  distinct(id, cf, .keep_all = T) %>% 
+  distinct(id, frequency, .keep_all = T) %>% 
   filter(Qerb_S > 0)
 
 ## Plot Qerb data (estimated using Shera Method)
-p9 <- ggplot(data=df2, aes(x=cf, y=Qerb_S, colour=group)) + 
+p8 <- ggplot(data=df2, aes(x=frequency, y=Qerb_S, colour=group)) + 
   geom_point(aes(shape=group), size=3, alpha=0.7) +
   geom_smooth(aes(group=group, color=group, linetype=group), method="lm", formula=y~x, se=F, size=1.5) + 
   scale_x_log10() + 
@@ -167,31 +264,31 @@ p9 <- ggplot(data=df2, aes(x=cf, y=Qerb_S, colour=group)) +
   theme_bw(base_size=15) + 
   theme(legend.position = "top")
 
-#p9
+#p8
 
 # Add Shera (2002) OAE tuning estimates to figure
-p9 <- p9 + 
+p8 <- p8 + 
   geom_line(data=SheraLower, aes(x=Frequency, y=Qerb), colour="black", alpha=0.5, linetype="dashed") + 
   geom_line(data=SheraUpper, aes(x=Frequency, y=Qerb), colour="black", alpha=0.5, linetype="dashed") + 
   annotate(geom="text", x=1250, y=21, label="Shera et al. (2002)", color="black", size=5) 
 
-
-#p9 
+p8 
 
 # Save 
 #ggsave("Fig8_QerbSF-s.tiff", plot=p9, width=14, height=7, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures')
 
-###############################################################################
-## Linear regression - Qerb (SFOAE) by age group 
-###############################################################################
+##################################################
+## Linear regression: Qerb (SFOAE) by age group ##
+##################################################
 
-# Not currently used in manuscript
-# 
-# #df2$cf <- as.factor(df2$cf)
-# 
-# Qsfmodel <- lm(Qerb_S ~ cf * group, data=df2)
-# summary(Qsfmodel)
-# 
+# Re(define) variable types
+df2$age <- as.numeric(df2$age)
+df2$group <- as.factor(df2$group)
+
+# Control for PTA
+sfmodel <- lm(Qerb_S ~ frequency * age + pta, data=df2)
+summary(sfmodel)
+
 # # Check for normality
 # resid_vals <- residuals(Qsfmodel)
 # hist(resid_vals)
@@ -202,18 +299,17 @@ p9 <- p9 +
 # plot(fitted_vals, resid_vals, xlab="Fitted values", ylab="Residuals")
 # abline(h=0)
 
-################################################################################
-## Prep data
-################################################################################
+######################################################
+## Save data for comparisons across tuning measures ##
+######################################################
 
 # Save data in new frame to compare across LRF, SFOAE, and fPTC
-dfQ <- df2 %>%
-  dplyr::select(id, cf, group, Qerb_S)
+dfSF <- df2 %>%
+  dplyr::select(id, frequency, group, Qerb_S, age, pta, ptahigh, ptalow, thresholdsFPL)
 
-dfSF <- dfQ %>%
+dfSF <- dfSF %>%
   mutate(type = 'SFOAE') %>%
-  rename(frequency = cf,
-         Qerb = Qerb_S)
+  rename(Qerb = Qerb_S)
 
 # Get participant ids in consistent format
 dfSF$id <- gsub("_","",as.character(dfSF$id)) 

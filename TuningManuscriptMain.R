@@ -2,14 +2,15 @@
 ### Cochlear Tuning in Early Aging Estimated with Three Methods ####
 ####################################################################
 
-# For plotting LRF data & associated (estimated) Qerbs for Tuning Manuscript.
+# For plotting and analyzing data in "Cochlear Tuning in Early Aging Estimated with Three Methods" 
+# Manuscript submitted to Trends in Hearing 
 
 # Author: Courtney SC Glavin
-# Last Updated: October 7, 2024
+# Last Updated: June 17, 2025
 
-################################################################################
-## Set up R and data
-################################################################################
+##############
+## Set up R ##
+##############
 
 ## Install packages, as required
 if (!require(pacman)) install.packages('pacman')       # for pkg loading
@@ -21,58 +22,44 @@ if (!require(cowplot)) install.packages('cowplot')     # for combining figures
 if (!require(sm)) install.packages('sm')
 if (!require(ggpubr)) install.packages('ggpubr')
 if (!require(tidyr)) install.packages('tidyr')
+if (!require(knitr)) install.packages('knitr')
+if (!require(ggeffects)) install.packages('ggeffects')
 
 ## Open packages 
-pacman::p_load(pacman, dplyr, ggplot2, car, rstatix, sm, ggpubr, tidyr, cowplot)#, plotrix, RColorBrewer, digitize, sm, ggpubr)
+pacman::p_load(pacman, dplyr, ggplot2, car, rstatix, sm, ggpubr, tidyr, cowplot, knitr, ggeffects)#, plotrix, RColorBrewer, digitize, sm, ggpubr)
 
-################################################################################
-## LRF data 
-################################################################################
+# Define color palette
+my.pal <- c("#F79044FF","#B6308BFF","#8305A7FF")
+# Define shapes
+my.shapes <- c(15,16,17)
 
-source('D:/Analysis/Scripts/Tuning Manuscript/LRFplot_TuningManuscript.R', echo=FALSE)
+#########################################
+## Loads, analyzes, and plots LRF data ##
+#########################################
 
-################################################################################
-## fPTC data
-################################################################################
+source('D:/Analysis/Tuning Manuscript/Scripts/LRFplot_TuningManuscript.R', echo=FALSE)
 
-source('D:/Analysis/Scripts/Tuning Manuscript/fptcPlot_TuningManuscript.R', echo=FALSE)
+##########################################
+## Loads, analyzes, and plots fPTC data ##
+##########################################
 
-################################################################################
-## SFOAE data 
-################################################################################
+source('D:/Analysis/Tuning Manuscript/Scripts/fptcPlot_TuningManuscript.R', echo=FALSE)
 
-source('D:/Analysis/Scripts/Tuning Manuscript/fptcPlot_TuningManuscript.R', echo=FALSE)
+###########################################
+## Loads, analyzes, and plots SFOAE data ##
+###########################################
 
-################################################################################
-## Audiogram data
-################################################################################
+source('D:/Analysis/Tuning Manuscript/Scripts/sfoaePhasePlot_TuningManuscript.R', echo=FALSE)
 
-## Load in data
-df <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/audioData_2024-05-13.csv') # data
-te <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/participantTestEar.csv') # test ear of each participant 
+###############################################
+## Loads, analyzes, and plots audiogram data ##
+###############################################
 
-# Remove participants who are not included in other data analysis (i.e., did not meet inclusion criteria for study)
-df <- df %>%
-  filter(ID != 'CCG_B_007') %>%
-  filter(ID != 'CCG_B_039') %>% 
-  filter(ID != 'CCG_C_081') %>% 
-  filter(ID != 'CCG_C_061')
+source('D:/Analysis/Tuning Manuscript/Scripts/audiogram_TuningManuscript.R', echo=FALSE)
 
-# Rename mislabeled participants
-df$ID[df$ID == "CCG_A_015"] <- "CCG_A_015_discontinued"
-df$ID[df$ID == "CCG_B_29"] <- "CCG_B_029"
-
-# Merge dfs
-df <- df %>% 
-  left_join(te, by="ID")
-
-# Filter by test ear
-newdf <- df %>% 
-  mutate(testEarThreshold = ifelse(testEar == 'R', Right, Left)
-  )
-
-# Remove _ from participantIDs 
-newdf$ID <- gsub("_", "", newdf$ID)
+#########################################################################
+## Bind rows across data frames for cross-method, group-level analysis ##
+#########################################################################
 
 # Bind rows across all tuning dataframes 
 idLRF <- as.data.frame(dfLRF$id)
@@ -90,14 +77,12 @@ colnames(idAll)[1] <- "ID"
 # Filter audio data by idAll (only use audio data of participants with tuning data)
 audiodf <- semi_join(newdf, idAll, by = "ID")
 
-################################################################################
-## Figure 1: Average and plot audiogram data
-################################################################################
+# Filter tracking data by idAll (only use tracking data of participants with tuning data)
+#trkdf <- semi_join(dftrk, idAll, by = "ID")
 
-# Define color palette
-my.pal <- c("#F79044FF","#B6308BFF","#8305A7FF")
-# Define shapes
-my.shapes <- c(15,16,17)
+###############################################
+## Figure 1: Average and plot audiogram data ##
+###############################################
 
 dfavg <- audiodf %>% 
   group_by(Group,Frequency) %>%
@@ -148,15 +133,46 @@ p1 <- ggplot(dfavg, aes(x=Frequency, y=avgTE, colour=Group, shape=Group)) +
   theme(legend.position = c(.8,.2), 
         legend.background = element_blank())
 
+# Same plot, different y scale for inset
+inset <- ggplot(dfavg, aes(x=Frequency, y=avgTE, colour=Group, shape=Group)) +
+  geom_line(size=1.2) +
+  geom_point(size=3) +
+  geom_errorbar(aes(ymin=(avgTE-sdTE), ymax=(avgTE+sdTE), colour=Group), alpha=0.5) +
+  xlab("Frequency (Hz)") + 
+  ylab("Average Threshold (dB HL)") + 
+  #geom_hline(yintercept=25, linetype="dotted") +
+  scale_color_manual(name="",
+                     labels=c("18-23 years","30-39 years","40+ years"),
+                     values=my.pal) +
+  scale_shape_manual(name="", 
+                     labels=c("18-23 years","30-39 years","40+ years"),
+                     values=my.shapes) +  # Use appropriate shapes here
+  scale_y_reverse(limits=c(25,-8),
+                  breaks=c(0,10,20),
+                  labels=c(0,10,20)) +
+  theme_bw(base_size=12) + 
+  theme(#axis.title = element_blank(), 
+        #axis.text = element_blank(),
+        #axis.ticks = element_blank(),
+        legend.position = "none")
+
 # Add average audiogram for Group C without participants with elevated thresholds 
 p <- p1 + 
   geom_line(data=cleanavg, aes(x=Frequency, y=avgTE, colour=Group), linetype="dashed", alpha=0.5) +
   geom_point(data=cleanavg, aes(x=Frequency, y=avgTE, colour=Group, shape=Group), size=4, alpha=0.5)
 
-#p
+pinset <- inset + 
+  geom_line(data=cleanavg, aes(x=Frequency, y=avgTE, colour=Group), linetype="dashed", alpha=0.5) +
+  geom_point(data=cleanavg, aes(x=Frequency, y=avgTE, colour=Group, shape=Group), size=3, alpha=0.5)
+
+pnew <- ggdraw() + 
+  draw_plot(p) + 
+  draw_plot(pinset, x=0.15, y=0.15, width=0.45, height=0.45)
+
+pnew
 
 # Save 
-#ggsave("Fig1_audiogram.tiff", plot=p, width=10, height=8, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures/')
+#ggsave("Fig1_audiogram.tiff", plot=pnew, width=10, height=8, units="in", dpi=800, path = 'C:/Users/glavi/OneDrive - UW/Documents/Manuscripts/Tuning Manuscript/Submission 2/Figures')
 
 ######################################
 ## Analysis: ANOVA (audiogram data) ## 
@@ -175,47 +191,38 @@ hist(audio.aov[[2]])
 ggqqplot(audio.aov[[2]])
 
 # Check homogeneity of variance
-leveneTest(testEarThreshold ~ Frequency*Group, data=audiodf)
+#leveneTest(testEarThreshold ~ Frequency*Group, data=audiodf)
 # Variance not different between groups
 
 # Calculate effect sizes (partial ns) 
-eta_squared(audio.aov)
+#eta_squared(audio.aov)
 
 # Perform bonferroni-corrected t-tests
-audio.nal <- pairwise.t.test(audiodf$testEarThreshold, audiodf$Group, p.adjust.method = "bonferroni")
+#audio.nal <- pairwise.t.test(audiodf$testEarThreshold, audiodf$Group, p.adjust.method = "bonferroni")
 
 # Evaluate effect size (Cohen's d)
-audiodf %>% cohens_d(testEarThreshold ~ Group, var.equal = T)
+#audiodf %>% cohens_d(testEarThreshold ~ Group, var.equal = T)
 
-################################################################################
-## Data cleaning/processing: Qerb comparisons across measurement type
-################################################################################
+########################################################################
+## Data cleaning/processing: Qerb comparisons across measurement type ##
+########################################################################
 
-# Three main dataframes from source files (in addition to audiogram data): 
+# Three main dataframes from source files (in addition to behavioral threshold data): 
 # 1) dfLRF 
 # 2) dfSF
 # 3) dfPTC
 
-# Combine into one df - Method 1 (not used in manuscript)
-#dfQ <- bind_rows(dfLRF, dfPTC, dfSF) # Note: this method of merging saves all data regardless of whether there are corollary data points
-
-# Combine into one df - Method 2 (used in manuscript)
+# Combine into one df 
 # Note: This method will only include participants with data estimations from all three methods
 
 # First, clean up dfPTC - two participants have 2 data points at the same frequency
 dfPTC <- dfPTC %>%
-  group_by(id, frequency, group) %>%
+  group_by(id, frequency, group, age, pta, ptahigh, ptalow) %>%
   summarize(Qerb = mean(Qerb))
-
-# Change frequency back to integer class
-dfPTC$frequency <- as.integer(as.character(dfPTC$frequency))
 
 dfLRF <- dfLRF %>%
-  group_by(id, frequency, group) %>%
+  group_by(id, frequency, group, age, pta, ptahigh, ptalow) %>%
   summarize(Qerb = mean(Qerb))
-
-# Change frequency back to integer class
-dfSF$frequency <- as.integer(as.character(dfSF$frequency))
 
 common_df <- dfLRF %>%
   inner_join(dfPTC, by = c("id", "frequency")) %>%
@@ -245,61 +252,22 @@ audiodf <- audiodf %>%
   rename(group = Group) %>%
   rename(id = ID) %>%
   rename(frequency = Frequency) %>%
-  select(id, group, frequency, testEarThreshold)
+  select(id, group, frequency, testEarThreshold, age, pta)
 
-dfQcombined <- dfQcombined %>%
-  inner_join(audiodf, by = c("id", "group", "frequency"))
 
-################################################################################
-## Not used: Qerb comparisons across measurement type (BOXPLOTS)
-################################################################################
-
-# Labels for plotting
-# labs <- c('A' = "18-23 years",
-#           'B' = "30-39 years",
-#           'C' = "40+ years",
-#           '2000' = "2000",
-#           '4000' = "4000",
-#           '8000' = "8000",
-#           '10000' = "10000",
-#           '12500' = "12500",
-#           '14000' = "14000",
-#           '16000' = "16000") 
-
-# Boxplots of data across type
-# p20 <- ggplot(dfQcombined, aes(x=type, y=Qerb, colour=group, group=type)) + 
-#   geom_boxplot() +
-#   facet_grid(group ~ frequency , scales="free", labeller=as_labeller(labs)) +
-#   scale_colour_manual(name="",
-#                       labels= c("18-23 years", "30-39 years", "40+ years"),
-#                       aesthetics= c("colour","fill"),
-#                       values=my.pal) +
-#   labs(x = ('Measurement Type'),
-#        y = bquote(italic(Q)[italic(erb)]~'')) + 
-#   theme_bw(base_size=15) +
-#   theme(legend.position = "none", legend.title = element_blank())#, axis.text.x=element_text(angle=45, hjust=1))  
-# 
-# 
-# p20 
-
-################################################################################
-## Figure 11: Qerb comparisons across measurement type 
-################################################################################
+#########################################################
+## Figure 12: Qerb comparisons across measurement type ##
+#########################################################
 
 # Reorder factors for plotting
-dfQcombined$type <- factor(dfQcombined$type, levels = c("LRF", "SFOAE","fPTC"))
+dfQcombined$type <- factor(dfQcombined$type, levels = c("fPTC", "LRF","SFOAE"))
 
 # Add weights for plotting (based on number of data points for each condition)
 dfQcombined <- dfQcombined %>%
-  group_by(frequency, group, type) %>%
   mutate(weight = n()) %>%
   ungroup()
 
-# Get rid of conditions (for plotting) with only one data point so as to not significantly skew smoothed fit
-#dfQcombined2 <- dfQcombined %>%
-#  filter(weight > 1)
-
-p21 <- ggplot() + 
+p12 <- ggplot() + 
   geom_point(data=dfQcombined, aes(x=frequency, y=Qerb, colour=group, shape=group), size=3, alpha=0.3) +
   geom_smooth(data=dfQcombined, aes(x=frequency, y=Qerb, colour=group, linetype=group, weight=weight), method="lm", span=1,se=F, size=1.5) + 
   facet_wrap(~type, scales="free_y") +
@@ -320,211 +288,166 @@ p21 <- ggplot() +
   theme_bw(base_size=15) +
   theme(legend.position = "top", legend.title = element_blank())#, axis.text.x=element_text(size=15))
 
-p21
+p12
 
 # Save
-#ggsave("Fig11_QerbbyType.tiff", plot=p21, width=14, height=7, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures/')
+#ggsave("Fig12_QerbbyType.tiff", plot=p12, width=14, height=7, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures/')
 
-################################################################################
-## Figure 12: Correlations of Qerb across measurement type 
-################################################################################
+######################################################################
+## Analysis (MLR): Predicting Q by frequency, age group, and method ##
+######################################################################
 
-## Correlation plots - Qerb of different types
-plotlabs <- c('A' = "18-23 years",
-              'B' = "30-39 years",
-              'C' = "40+ years")
+# Ensure df has thresholds for a given individual across all Qerb types at a given frequency
+dfQcombined <- dfQcombined %>%
+  group_by(id, frequency) %>%
+  tidyr::fill(thresholdsFPL, .direction = "downup") %>%
+  ungroup()
 
-# Correlation calculations
+# (Re) Define variable types
+dfQcombined$frequency <- as.numeric(dfQcombined$frequency)
+dfQcombined$group <- as.factor(dfQcombined$group)
+dfQcombined$type <- as.factor(dfQcombined$type)
+dfQcombined$age <- as.numeric(dfQcombined$age)
 
-# Group A, SF vs. PTC
-SFa <- dfQcombined %>% filter(group == 'A') %>% filter(type == 'SFOAE')
-PTCa <- dfQcombined %>% filter(group == 'A') %>% filter(type == 'fPTC')
-cor.test(SFa$Qerb,PTCa$Qerb)
+# Center frequency variable
+dfQcombined$frequency_c <- dfQcombined$frequency - mean(dfQcombined$frequency, na.rm=T)
 
-# Group A, SF vs. LRF
-LRFa <- dfQcombined %>% filter(group == 'A') %>% filter(type == 'LRF')
-cor.test(SFa$Qerb,LRFa$Qerb)
-
-# Reshape data for plotting
-dfwide <- dfQcombined %>% tidyr::pivot_wider(names_from = type, values_from = Qerb)
-#dfwide <- dfwide %>% filter(frequency <= 8000)
-
-# SFOAE vs. fPTC
-p1 <- ggscatter(data=dfwide, 
-               x="SFOAE", 
-               y="fPTC", 
-               color="group",  # Map color to a variable
-               palette=my.pal,
-               add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' SFOAE')),
-       y = (bquote(italic(Q)[italic(erb)]~' fPTC'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-p2 <- ggscatter(data=dfwide, 
-                x="SFOAE", 
-                y="fPTC", 
-                color="black",  # Map color to a variable
-                #palette=my.pal,
-                add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  #facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' SFOAE')),
-       y = (bquote(italic(Q)[italic(erb)]~' fPTC'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-# Combine plots
-p3 <- cowplot::plot_grid(p1,p2)
-
-#####
-# SFOAE vs. LRF 
-p4 <- ggscatter(data=dfwide, 
-          x="SFOAE", 
-          y="LRF", 
-          color="group",  # Map color to a variable
-          palette=my.pal,
-          add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' SFOAE')),
-       y = (bquote(italic(Q)[italic(erb)]~' LRF'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-p5 <- ggscatter(data=dfwide, 
-                x="SFOAE", 
-                y="LRF", 
-                color="black",  # Map color to a variable
-                #palette=my.pal,
-                add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  #facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' SFOAE')),
-       y = (bquote(italic(Q)[italic(erb)]~' LRF'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-# Combine plots
-p6 <- cowplot::plot_grid(p4,p5)
-
-#p6
-
-#####
-# fPTC vs. LRF 
-p7 <- ggscatter(data=dfwide, 
-                x="fPTC", 
-                y="LRF", 
-                color="group",  # Map color to a variable
-                palette=my.pal,
-                add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' fPTC')),
-       y = (bquote(italic(Q)[italic(erb)]~' LRF'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-p8 <- ggscatter(data=dfwide, 
-                x="fPTC", 
-                y="LRF", 
-                color="black",  # Map color to a variable
-                #palette=my.pal,
-                add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  #facet_wrap(~group, labeller=as_labeller(plotlabs)) + 
-  labs(x = (bquote(italic(Q)[italic(erb)]~' fPTC')),
-       y = (bquote(italic(Q)[italic(erb)]~' LRF'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-# Combine plots
-p9 <- cowplot::plot_grid(p7,p8)
-
-#p9
-
-#####
-# Combine all three plots 
-p10 <- cowplot::plot_grid(p3,p6,p9, nrow=3)
-
-#p10
-
-# Save
-#ggsave("Fig12_correlations.tiff", plot=p10, width=16, height=8, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures/')
-
-################################################################################
-## Analysis (for Discussion): Audiometric thresholds and Qerb
-################################################################################
-#test <- dfQcombined %>% filter(type == 'SFOAE' & frequency == 4000 & testEarThreshold < 30)
-
-ggscatter(data=dfQcombined, 
-          x="testEarThreshold", 
-          y="Qerb", 
-          #color="group",  # Map color to a variable
-          palette=my.pal,
-          add = "reg.line") + 
-  stat_cor(label.x=Inf, hjust=1.1) + 
-  facet_wrap(frequency ~ type) + #, labeller=as_labeller(plotlabs)) + 
-  #labs(x = (bquote(italic(Q)[italic(erb)]~' SFOAE')),
-  #     y = (bquote(italic(Q)[italic(erb)]~' fPTC'))) +
-  theme_bw(base_size=15) +
-  theme(legend.position="none")
-
-# Figure not shown - no statistically significant relationships 
-
-################################################################################
-## Analysis (MLR): Predicting Q by frequency, age group, and method 
-################################################################################
-
-Qmodel <- lm(Qerb ~ frequency * group * type, data=dfQcombined)
+# Run model 
+Qmodel <- lm(Qerb ~ frequency_c * age * type + thresholdsFPL, data=dfQcombined)
 summary(Qmodel)
 
+      # Extract and round model summary
+       tidy_model <- tidy(Qmodel) %>%
+         mutate(across(where(is.numeric), ~ round(.x, 4)))  
+                      
+      # Display table
+      knitr::kable(tidy_model, caption = "MLR Summary", align = "c")
+
+      # Look at estimated marginal means and contrasts                
+      library(emmeans)
+      emm <- emtrends(Qmodel, ~ type, var = "age")
+      summary(emm, infer=T)
+      contrast_emtr <- contrast(emm, method = "pairwise")
+      summary(contrast_emtr, infer = TRUE)
+
 # Check for normality
-resid_vals <- residuals(Qmodel)
-hist(resid_vals)
-sm.density(resid_vals,model="normal")
+# resid_vals <- residuals(Qmodel)
+# hist(resid_vals)
+# sm.density(resid_vals,model="normal")
+# 
+# #Check for heteroskedasticity
+# fitted_vals <- fitted(Qmodel) 
+# plot(fitted_vals, resid_vals, xlab="Fitted values", ylab="Residuals")
+# abline(h=0)
 
-#Check for heteroskedasticity
-fitted_vals <- fitted(Qmodel) 
-plot(fitted_vals, resid_vals, xlab="Fitted values", ylab="Residuals")
-abline(h=0)
+# Visualize effects                      
+#eff <- ggpredict(Qmodel, terms = c("frequency_c", "type", "age [20, 30, 40]")) 
+                      
+#plot(eff) +
+  #scale_x_log10() + 
+  #scale_y_log10() +
+  #theme_bw(base_size=15)
 
-################################################################################
-## Figure 13 (NOT USED): Qerb across methods; collapsed age groups 
-################################################################################
-# 
-# # Second color palette for Q type
-# my.pal2 <- c('#33638DFF','#29AF7FFF','#FF964F')#,'FDE725FF')
-# 
-# ## By age group 
-# avgQ <- dfQcombined %>%
-#   group_by(frequency, group, type) %>%
-#   summarize(avgQ = mean(Qerb), 
-#             sdQ = sd(Qerb)) 
-# 
-# 
-# ## Collapse across age groups
-# avgQall <- dfQcombined %>%
-#   group_by(frequency, type) %>%
-#   summarize(avgQ = mean(Qerb), 
-#             sdQ = sd(Qerb))
-# 
-# p17 <- ggplot(avgQall, aes(x=frequency, y=avgQ, colour=type)) + 
-#   geom_point(size=2, alpha=0.4) +
-#   #geom_errorbar(data=avgQall, aes(x=frequency, ymin=avgQ-sdQ, ymax=avgQ+sdQ), position=position_dodge(width=0.1), alpha=0.4, width=0.02) + 
-#   geom_errorbar(aes(ymin=avgQ-sdQ, ymax=avgQ+sdQ), alpha=0.4, width=0.02) +
-#   geom_smooth(data=avgQall, aes(x=frequency, y=avgQ, colour=type), method="lm", se=F, size=1.2) + 
-#   scale_colour_manual(name="",
-#                       #labels= c("fPTC", "DPOAE LRF", "SFOAE Phase Gradient Delay"),
-#                       aesthetics= c("colour","fill"),
-#                       values=my.pal2) + 
-#   scale_x_log10() + 
-#   scale_y_log10(limits=c(5,100)) + 
-#   labs(x = 'Frequency (Hz)',
-#        y = bquote(italic(Q)[italic(erb)]~'')) + 
-#   theme_bw(base_size=15) +
-#   theme(legend.position = "right", legend.title = element_blank())#, axis.text.x=element_text(size=15))
-# 
-# p17 
+################################
+## Figure 11: Qerb across age ##
+################################
+
+# Create labels for plot
+labs <- c('A' = "18-23 years",
+          'B' = "30-39 years",
+          'C' = "40+ years")
+
+p11 <- 
+  ggplot() + 
+  geom_point(data=dfQcombined, aes(x=age, y=Qerb), size=3, alpha=0.7) +
+  geom_smooth(data=dfQcombined, aes(x=age, y=Qerb), colour="black", linetype="dashed", method="lm", se=T, size=1) + 
+  scale_y_log10() + 
+  labs(x = bquote('Age (years)'),
+       y = bquote(italic(Q)[italic(erb)]~'')) + 
+  theme_bw(base_size=15) +
+  theme(legend.position = "none", 
+        legend.title = element_blank())
+
+p11
+
+# Save
+#ggsave("Fig11_Qerb_age.tiff", plot=p11, width=10, height=7, units="in", dpi=800, path = 'C:/Users/glavi/OneDrive - UW/Documents/Manuscripts/Tuning Manuscript/Submission 3/Figures')
+
+
+####################################
+## Analysis: Slopes from Figure 4 ##
+####################################
+
+# Estimate the same slopes from lm; control for PTA 
+model <- lm(Qerb ~ age + thresholdsFPL, data = dfQcombined)
+summary(model)
+
+##############################################
+## Figure 2: Behavioral Tracking Thresholds ##
+##############################################
+
+#dftrk <- rename(dftrk, "ID" = "id")
+trkplot <- dftrk %>%
+  semi_join(dfQcombined, by="id")
+
+trkplot <- trkplot %>%
+  mutate(group = case_when(
+    grepl("A", id) ~ "A",
+    grepl("B", id) ~ "B",
+    TRUE ~ "C"
+  ))
+
+trkavg <- trkplot %>% 
+  group_by(group,frequency) %>%
+  summarize(avgTrk = mean(thresholdsFPL, na.rm=T),
+            sdTrk = sd(thresholdsFPL, na.rm=T)
+  )
+
+# Clean df without individuals with elevated thresholds
+cleandf <- trkplot %>%
+  filter(id != 'CCGC074') %>%
+  filter(id != 'CCGC069') %>%
+  filter(id != 'CCGC070')
+
+cleanavg <- cleandf %>% 
+  group_by(group,frequency) %>%
+  summarize(avgTrk = mean(thresholdsFPL, na.rm=T),
+            sdTrk = sd(thresholdsFPL, na.rm=T)
+  )
+
+cleanavg <- cleanavg %>% filter(group == 'C')
+
+# Plot average tracking data 
+p2 <- ggplot(trkavg, aes(x=frequency, y=avgTrk, colour=group, shape=group)) +
+  geom_line(size=1.5) +
+  geom_point(size=4) +
+  geom_errorbar(aes(ymin=(avgTrk-sdTrk), ymax=(avgTrk+sdTrk), colour=group), alpha=0.5) +
+  xlab("Frequency (kHz)") + 
+  ylab("Average Tracking Threshold (dB FPL)") +
+  scale_color_manual(name="",
+                     labels=c("18-23 years","30-39 years","40+ years"),
+                     aesthetics=c("colour","fill"), 
+                     values=my.pal) +
+  scale_shape_manual(name="", 
+                     labels=c("18-23 years","30-39 years","40+ years"),
+                     values=my.shapes) +  # Use appropriate shapes here
+  scale_y_reverse(limits=c(110,-3),
+                  breaks=c(0,10,20,30,40,50,60,70,80,90,100,110),
+                  label=c(0,10,20,30,40,50,60,70,80,90,100,110)) +
+  scale_x_log10(limits=c(100,18000),
+                breaks=c(125,250,500,750,1000,1500,2000,3000,4000,6000,8000,10000,11250,12500,14000,16000),
+                label=c("",0.25,0.5,0.75,1,1.5,2,3,4,6,8,10,"",12.5,"",16)) +
+  theme_bw(base_size=15) + 
+  theme(legend.position = c(.2,.3), 
+        legend.background = element_blank())
+
+p2
+
+p02 <- p2 + 
+  geom_line(data=cleanavg, aes(x=frequency, y=avgTrk, colour=group, shape=group), linetype="dashed", alpha = 0.5) + 
+  geom_point(data=cleanavg, aes(x=frequency, y=avgTrk, colour=group, shape=group), size=4, alpha=0.5) 
+
+p02
+
+# Save 
+#ggsave("Fig2_tracking.tiff", plot=p02, width=10, height=8, units="in", dpi=800, path = 'C:/Users/glavi/OneDrive - UW/Documents/Manuscripts/Tuning Manuscript/Submission 3/Figures')

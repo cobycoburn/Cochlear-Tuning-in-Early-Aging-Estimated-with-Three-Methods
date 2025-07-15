@@ -1,15 +1,18 @@
-#################
-### fPTC Data ###
-#################
+####################################################
+### Fast Psychophysical Tuning Curve (fPTC) Data ###
+####################################################
 
-# For plotting fPTC data & associated (estimated) Qerbs for Tuning Manuscript.
+# For plotting fPTC data & associated (estimated) Qerbs 
+# Sub-analysis of Cochlear Tuning in Early Aging Estimated with Three Methods
+# Manuscript submitted to Trends in Hearing
 
-# Author: Courtney Glavin
-# Last Updated: October 9, 2024
+# Author: Courtney SC Glavin
+# Last Updated: June 24, 2025
+# Version: 2.0 
 
-################################################################################
-## Set up R and data
-################################################################################
+##############
+## Set up R ##
+##############
 
 ## Install packages, as required
 if (!require(pacman)) install.packages('pacman')             # for pkg loading
@@ -21,20 +24,26 @@ if (!require(sm)) install.packages('sm')                     # sm density - norm
 ## Open packages 
 pacman::p_load(pacman, dplyr, ggplot2, plotrix, sm)
 
-# Read .csv; update path as needed
-#df <- read.csv('D:/Compiled fPTC Data/allData25-Jun-2024.csv')
-df <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/allData25-Jun-2024.csv')
-
 # Define color palette (for plotting)
 my.pal <- c("#F79044FF","#B6308BFF","#8305A7FF")
 # Define shapes (for plotting)
 my.shapes <- c(15,16,17,NA)
 
-################################################################################
-## Prep data
-################################################################################
+############################################################
+## Initial data wrangling - LRF and behavioral thresholds ##
+############################################################
 
-# Change group variable (something was assigned incorrectly in matlab) 
+# Read .csv; update path as needed
+df <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/allData25-Jun-2024.csv')
+dfaudio <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/audioData_2024-05-13.csv') # audiogram data
+te <- read.csv('D:/Analysis/Tuning Manuscript/Data (Final)/participantTestEar.csv') # test ear of each participant 
+dftrk <- read.csv('D:/Analysis/Behavioral Tracking/Analyzed Data/individualtrackingThresholds_2024-05-14.csv') # behavioral tracking thresholds of each participant
+
+##########################
+### fPTC Data Cleaning ###
+##########################
+
+# Define group variable 
 df <- df %>%
   mutate(group = case_when(
     substr(id, 4, 4) == "A" ~ "A",
@@ -48,18 +57,12 @@ df$ratio <- (df$probeFreq)/(df$noiseFreq)
 
 # Preliminary data cleaning
 df <- df %>%
-  filter(probeFreq > 1000) %>%       # one early pilot participant has data at additional frequencies
+  filter(probeFreq > 1000) %>%       # one early pilot participant had data at additional frequencies
   filter(probeFreq != 11250) 
 
 ################################################################################
 ## Data processing and cleaning ##
 ################################################################################
-
-# Now, look at raw data before additional data processing
-#ggplot(df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=id)) + 
-#  geom_line() + 
-#  facet_grid(group~probeFreq, scales="free") +
-#  theme_bw()
 
 # Based on various inspections, the first level of data cleaning will:
   # 1) Remove fPTCs where Q10 could not be estimated (=0)
@@ -94,9 +97,98 @@ rmdf2 <- df %>%
 
 df <- anti_join(df, rmdf2) 
 
-################################################################################
-## Figure 9: fPTC Plotting 
-################################################################################
+###########################
+### Audiogram wrangling ###
+###########################
+
+# Rename mislabeled participants
+dfaudio$ID[df$ID == "CCG_A_015"] <- "CCG_A_015_discontinued"
+dfaudio$ID[df$ID == "CCG_B_29"] <- "CCG_B_029"
+
+# Merge dfs
+dfaudio <- dfaudio %>% 
+  left_join(te, by="ID")
+
+# Filter by test ear
+dfaudio <- dfaudio %>% 
+  mutate(testEarThreshold = ifelse(testEar == 'R', Right, Left)
+  )
+
+# Remove _ from participantIDs 
+dfaudio$ID <- gsub("_", "", dfaudio$ID)
+
+# Create PTA column from audiogram data (0.5, 2, and 4 kHz)
+pta <- dfaudio %>%
+  filter(Frequency %in% c(500, 1000, 2000)) %>%
+  mutate(selected_ear = ifelse(testEar == 'L', Left, Right)) %>% 
+  group_by(ID) %>%
+  summarise(pta = mean(selected_ear, na.rm = TRUE)) %>%
+  ungroup() 
+
+dfaudio <- dfaudio %>%
+  left_join(pta, by = "ID")
+
+# Reformat column name
+dfaudio <- rename(dfaudio, id = ID)
+dfaudio <- rename(dfaudio, frequency = Frequency)
+
+#####################################
+### Behavioral tracking wrangling ###
+#####################################
+
+# Reformat data
+dftrk$frequency <- dftrk$frequency*1000
+dftrk$id <- paste0("CCG_", dftrk$id)
+dftrk$id <- gsub("_", "", dftrk$id)
+
+dftrk <- dftrk %>% select(id, frequency, thresholdsFPL) %>%
+  filter(frequency <= 16000) # No tuning data above 14 kHz
+
+ptalow <- dftrk %>%
+  filter(frequency %in% c(500, 1000, 2000)) %>%
+  group_by(id) %>%
+  summarise(ptalow = mean(thresholdsFPL, na.rm = TRUE)) %>%
+  ungroup()
+
+ptahigh <- dftrk %>%
+  filter(frequency %in% c(8000, 10000, 12500, 14000, 16000)) %>%
+  group_by(id) %>%
+  summarise(ptahigh = mean(thresholdsFPL, na.rm = TRUE)) %>%
+  ungroup() 
+
+dftrk <- dftrk %>%
+  left_join(ptalow, by = "id") %>%
+  left_join(ptahigh, by = "id") 
+
+##################################
+### Merge all three dataframes ###
+##################################
+
+df <- rename(df, frequency = probeFreq)
+
+df <- left_join(df, dfaudio, by = c("id", "frequency"))
+df <- left_join(df, dftrk, by = c("id", "frequency"))
+df <- unique(df) # Clear duplicate rows
+
+df <- df %>%
+  group_by(id) %>%
+  tidyr::fill(age, pta, ptahigh, ptalow, .direction = "downup") %>%
+  ungroup()
+
+
+# Fix missing age in this dataframe (this person's audiogram was missing from our data set,
+# therefore they inadvertently were filtered out when dfs were combined)
+df <- df %>%
+  mutate(
+    age = case_when(
+      grepl("CCGA002", id) ~ 20,      
+      TRUE                  ~ age    # leave other rows unchanged
+    )
+  )
+
+#############################
+## Figure 9: fPTC Plotting ##
+#############################
 
 # Create labels
 labs <- c('A' = "18-23 years",
@@ -115,24 +207,11 @@ label_function <- function(x) {
   return(x / 1000)
 }
 
-# # Plot individual example
-# ex <- df %>% filter(id == 'CCGA001') %>%
-#   filter(probeFreq==2000)
-# 
-# ggplot(data=ex, aes(x=noiseFreq,y=noiseLevel)) + 
-#   geom_line(alpha=0.5) +
-#   geom_smooth(se=F) + 
-#   scale_x_log10(labels = label_function) + 
-#   labs(x = 'Masker Frequency (kHz)',
-#        y = 'Masker Level (dB SPL)') +
-#   theme_bw(base_size=25) 
-
-# fPTCs as a function of frequency
-
-p12 <- ggplot(data=df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=id)) + 
+# Plot fPTCs as a function of frequency
+p9 <- ggplot(data=df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=id)) + 
   geom_line(alpha = 0.2) +
   geom_smooth(data=df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=group), se=F, size=1.2) + 
-  facet_grid(group ~ probeFreq , scales="free_x", labeller=as_labeller(labs)) + 
+  facet_grid(group ~ frequency , scales="free_x", labeller=as_labeller(labs)) + 
   scale_colour_manual(name="",
                       labels= c("18-23 years", "30-39 years", "40+ years"),
                       aesthetics= c("colour","fill"),
@@ -143,14 +222,14 @@ p12 <- ggplot(data=df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=id)) +
   theme_bw(base_size=15) +
   theme(legend.position = "top", legend.title = element_blank()) 
 
-#p12
+p9
 
 # Save
 #ggsave("Fig9_fPTCclean.tiff", plot=p12, width=18, height=9, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures')
 
-################################################################################
-## Not used in manuscript: ftip and probe vs. ftip Plotting
-################################################################################
+##############################################################
+## Not used in manuscript: ftip and probe vs. ftip Plotting ##
+##############################################################
 # 
 # agelabs <- c('A' = "18-23 years",
 #           'B' = "30-39 years",
@@ -174,34 +253,40 @@ p12 <- ggplot(data=df, aes(x=noiseFreq, y=noiseLevel, colour=group, group=id)) +
 # # Save 
 # #ggsave("probeVtip.tiff", plot=p14, width=12, height=6, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures')
 # 
-# # Probe vs. ftip plot
-# 
+# Probe vs. ftip plot relative difference
 # df <- df %>%
-#   mutate(tipdiff = log2(ftip/probeFreq))
-# 
-# p15 <- ggplot(df, aes(x=group, y=tipdiff, colour=group)) + 
-#   geom_boxplot() + 
-#   facet_grid(~probeFreq, labeller = as_labeller(labs)) +
-#   scale_colour_manual(name="",
-#                       labels= c("18-23 years", "30-39 years", "40+ years"),
-#                       aesthetics= c("colour","fill"),
-#                       values=my.pal) + 
-#   scale_x_discrete(labels = c("A" = "18-23",
-#                               "B" = "30-39",
-#                               "C" = "40+")) + 
-#   labs(x = 'Age Group (years)',
-#        y = 'Difference in fPTC tip to probe frequency (octaves)') + 
-#   theme_bw(base_size=15) +
-#   theme(legend.position = "none", legend.title = element_blank())#, axis.text.x=element_text(size=15))
-# 
-# p15
-
+#  mutate(tipdiff = log2(ftip/frequency)) # expressed as percentage
+#df <- df %>%
+#  mutate(tipdiff_pct = round((ftip - frequency) / frequency * 100, 1))
+#
+#df_summary <- df %>%
+#  mutate(tipdiff_pct = (ftip - frequency) / frequency * 100) %>%
+#  group_by(group) %>%
+#  summarise(mean_tipdiff_pct = mean(tipdiff_pct, na.rm = TRUE))
+#
+#p15 <- ggplot(df, aes(x=group, y=tipdiff_pct, colour=group)) +
+#  geom_boxplot() +
+#  facet_grid(~frequency, labeller = as_labeller(labs)) +
+#  scale_colour_manual(name="",
+#                      labels= c("18-23 years", "30-39 years", "40+ years"),
+#                      aesthetics= c("colour","fill"),
+#                      values=my.pal) +
+#  scale_x_discrete(labels = c("A" = "18-23",
+#                              "B" = "30-39",
+#                              "C" = "40+")) +
+#  labs(x = 'Age Group (years)',
+#       y = 'Difference in fPTC tip to probe frequency (octaves)') +
+#  theme_bw(base_size=15) +
+#  theme(legend.position = "none", legend.title = element_blank())#, axis.text.x=element_text(size=15))
+#
+#p15
+#
 # Save 
 #ggsave("probeVtip_boxplot.tiff", plot=p15, width=14, height=7, units="in", dpi=800, path = 'D:/Analysis/Tuning Manuscript/Figures')
 
-################################################################################
-## Figure 10: Qerb (fPTC) Plot
-################################################################################
+#################################
+## Figure 10: Qerb (fPTC) Plot ##
+#################################
 
 # Pull data from other studies (used Grabit in Matlab to extract data)
 # Wilson et al. (2020)
@@ -279,9 +364,9 @@ YasinfPTCQ <- data.frame(
 )
 
 # Pull unique values for plotting Qerb
-dfQ <- unique(df[, c("id","probeFreq","group","Qerb")])
+dfQ <- unique(df[, c("id","frequency","group","Qerb","age","pta","ptalow","ptahigh","thresholdsFPL")])
 
-p16 <- ggplot(data=dfQ, aes(x=probeFreq, y=Qerb, colour=group)) + 
+p10 <- ggplot(data=dfQ, aes(x=frequency, y=Qerb, colour=group)) + 
   geom_point(aes(shape=group), size=3, alpha=0.4) +
   geom_smooth(aes(group=group, color=group, linetype=group), method="lm", se=F, size=1.5) + 
   scale_colour_manual(name="",
@@ -301,7 +386,7 @@ p16 <- ggplot(data=dfQ, aes(x=probeFreq, y=Qerb, colour=group)) +
   theme_bw(base_size=15) +
   theme(legend.position = "top", legend.title = element_blank())#, axis.text.x=element_text(size=15))
 
-p16 <- p16 + 
+p10 <- p10 + 
   # Glasberg and Moore (1990) - predictions
   geom_line(data=Glasberg, aes(x=frequency, y=Qerb), colour="black", linetype = "dashed", alpha=0.7) +
   # Wilson et al. (2020)
@@ -316,60 +401,36 @@ p16 <- p16 +
   geom_point(data=YasinfPTCQ, aes(x=frequency*1000, y=Qerb), colour="black", shape=8, size=4, alpha=1) + 
   geom_errorbar(data=YasinfPTCQ, aes(x=frequency*1000, ymin=(Qerb-sd), ymax=(Qerb+sd)), colour="black", alpha=1, width=0.01)
 
-#p16
+p10
 
 # Save 
-#ggsave("Fig10_QerbPTC.tiff", plot=p16, width=14, height=7, units="in", dpi=800, path='D:/Analysis/Tuning Manuscript/Figures')
+#ggsave("Fig10_QerbPTC.tiff", plot=p10, width=14, height=7, units="in", dpi=800, path='D:/Analysis/Tuning Manuscript/Figures')
 
-# # Get additional icons from this plot (additional legend create in illustrator)
-# ggplot() + 
-#   geom_line(data=Glasberg, aes(x=frequency, y=Qerb), colour="black", linetype = "dashed", alpha=1) +
-#   #geom_point(data=YasinfPTCQ, aes(x=frequency*1000, y=Qerb), colour="black", shape=8, size=15, alpha=1) + 
-#   #xlim(1000,20000) +
-#   #ylim(10,20) + 
-#   scale_x_log10(limits=c(1000,10000)) + 
-#   scale_y_log10(limits=c(5,8)) +
-#   theme_void() 
-# 
-# # Save
-# ggsave("Glasberg_symbol.tiff", width=6, height=3, units="in", dpi=800, path='D:/Analysis/Tuning Manuscript/Figures')
+##################################################
+## Linear regression - Qerb (fPTC) by age group ##
+##################################################
 
-###############################################################################
-## Linear regression - effects of frequency & age group on SFOAE Qerb
-###############################################################################
+# Re(define) variable types
+dfQ$age <- as.numeric(dfQ$age)
+dfQ$group <- as.factor(dfQ$group)
 
-Qptcmodel <- lm(Qerb ~ probeFreq * group, data=dfQ)
+# Control for PTA
+Qptcmodel <- lm(Qerb ~ frequency * age + pta, data=dfQ) # control for age
 summary(Qptcmodel)
 
-# Check for normality
-resid_vals <- residuals(Qptcmodel)
-hist(resid_vals)
-sm.density(resid_vals,model="normal")
+# # Check for normality
+# resid_vals <- residuals(Qptcmodel)
+# hist(resid_vals)
+# sm.density(resid_vals,model="normal")
+# 
+# #Check for heteroskedasticity
+# fitted_vals <- fitted(Qptcmodel) 
+# plot(fitted_vals, resid_vals, xlab="Fitted values", ylab="Residuals")
+# abline(h=0)
 
-#Check for heteroskedasticity
-fitted_vals <- fitted(Qptcmodel) 
-plot(fitted_vals, resid_vals, xlab="Fitted values", ylab="Residuals")
-abline(h=0)
-
-# Three-way ANOVA
-#dfQ$probeFreq <- as.factor(dfQ$probeFreq)
-#dfQ$group <- as.factor(dfQ$group)
-#model <- aov(Qerb ~ probeFreq * group, data=dfQ)
-#summary(model) 
-
-# Calculate effect size
-#eta_squared <- eta_squared(model)
-#print(eta_squared)
-#cohens_d()
-# Post-hoc tests
-#tukeyresult <- TukeyHSD(model)
-#print(tukeyresult)
-
-###############################################################################
-
-## Save data in new frame to compare across LRF, SFOAE, and fPTC
+######################################################
+## Save data for comparisons across tuning measures ##
+######################################################
 
 dfPTC <- dfQ %>%
-  mutate(type = 'fPTC') %>%
-  rename(frequency = probeFreq)
-
+  mutate(type = 'fPTC')
